@@ -1,4 +1,11 @@
-from PIL import Image, ImageDraw, ImageFont
+# 尝试导入必要的库，提供优雅的错误处理
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    print("错误: 缺少Pillow库。请运行 'pip install pillow' 安装依赖。")
+    print("如果pip命令不可用，请尝试 'python -m pip install pillow'")
+    # 这里不抛出异常，让用户看到错误信息
+
 import argparse
 import textwrap
 
@@ -11,75 +18,111 @@ def create_text_image(
     text_color=(0, 0, 0),
     bg_color=(255, 255, 255),
     width=None,
-    height=None,  # 新增：图片分辨率（宽/高）
-    horizontal_align="center",  # 新增：水平对齐（left/center/right）
-    vertical_align="center",  # 新增：垂直对齐（top/center/bottom）
+    height=None,
+    horizontal_align="center",
+    vertical_align="center",
     padding=20,
 ):
-    """创建带有特定样式的文字图片（支持分辨率、对齐方式控制）"""
-    try:
-        font = ImageFont.truetype(font_path, font_size)
-    except IOError:
-        print(f"无法加载字体文件: {font_path}")
-        print("尝试使用默认字体...")
-        font = ImageFont.load_default()
-
+    """
+    创建带有特定样式的文字图片
+    
+    参数:
+        text: 要渲染的文字
+        font_path: 字体文件路径
+        output_path: 输出图片路径
+        font_size: 字体大小
+        text_color: 文字颜色(RGB元组)
+        bg_color: 背景颜色(RGB元组)
+        width: 图片宽度
+        height: 图片高度
+        horizontal_align: 水平对齐(left/center/right)
+        vertical_align: 垂直对齐(top/center/bottom)
+        padding: 文字与图片边缘的间距
+    """
+    # 加载字体
+    font = _load_font(font_path, font_size)
+    
     # 创建临时绘图对象计算文本尺寸
-    temp_img = Image.new("RGB", (1, 1), bg_color)
-    temp_draw = ImageDraw.Draw(temp_img)
+    temp_draw = ImageDraw.Draw(Image.new("RGB", (1, 1), bg_color))
+    
+    # 文本换行处理
+    wrapped_text = _wrap_text(text, font, width or 800, padding)
+    
+    # 计算文本尺寸
+    line_dimensions = _calculate_text_dimensions(wrapped_text, font, temp_draw)
+    total_text_width = max(dim[0] for dim in line_dimensions) if line_dimensions else 0
+    total_text_height = sum(dim[1] for dim in line_dimensions) + \
+                       (len(line_dimensions) - 1) * (font_size // 4)
+    
+    # 确定图片尺寸
+    img_width, img_height = width or min(total_text_width + 2 * padding, 800), \
+                           height or (total_text_height + 2 * padding)
+    
+    # 创建图片
+    img = Image.new("RGB", (img_width, img_height), bg_color)
+    draw = ImageDraw.Draw(img)
+    
+    # 计算文字起始位置并绘制
+    _draw_text(draw, wrapped_text, line_dimensions, font, text_color, 
+              img_width, img_height, total_text_height, 
+              horizontal_align, vertical_align, padding, font_size)
+    
+    img.save(output_path)
+    print(f"图片已保存至: {output_path}（分辨率：{img_width}x{img_height}）")
+    return img_width, img_height
 
-    # 计算平均字符宽度（用于换行）
+
+def _load_font(font_path, font_size):
+    """加载字体，处理异常情况"""
+    try:
+        if font_path and len(font_path) > 0:
+            return ImageFont.truetype(font_path, font_size)
+    except (IOError, OSError):
+        print(f"无法加载字体文件: {font_path}")
+    return ImageFont.load_default()
+
+
+def _wrap_text(text, font, max_width, padding):
+    """处理文本换行"""
+    # 计算平均字符宽度用于换行
     bbox = font.getbbox("x")
     avg_char_width = bbox[2] - bbox[0]
-    # 最大每行字符数（根据图片宽度或默认最大宽度计算）
-    max_line_width = width if width else 800  # 若未指定宽度，用默认800计算换行
-    max_chars_per_line = (max_line_width - 2 * padding) // avg_char_width
-
-    # 文本换行处理
+    max_chars_per_line = (max_width - 2 * padding) // avg_char_width
+    
     wrapped_text = []
     for paragraph in text.split("\n"):
         wrapped = textwrap.fill(paragraph, width=max_chars_per_line)
         wrapped_text.extend(wrapped.split("\n"))
+    
+    return wrapped_text
 
-    # 计算每行文本的宽高及总尺寸
-    line_heights = []
-    line_widths = []
-    line_spacing = font_size // 4  # 行间距
+
+def _calculate_text_dimensions(wrapped_text, font, draw):
+    """计算每行文本的宽度和高度"""
+    line_dimensions = []
     for line in wrapped_text:
-        bbox = temp_draw.textbbox((0, 0), line, font=font)
-        line_width = bbox[2] - bbox[0]
-        line_height = bbox[3] - bbox[1]
-        line_widths.append(line_width)
-        line_heights.append(line_height)
-    total_text_width = max(line_widths) if line_widths else 0
-    total_text_height = (
-        sum(line_heights) + (len(line_heights) - 1) * line_spacing
-    )  # 总文字高度（含行间距）
+        bbox = draw.textbbox((0, 0), line, font=font)
+        line_dimensions.append((bbox[2] - bbox[0], bbox[3] - bbox[1]))
+    return line_dimensions
 
-    # 确定图片最终尺寸（优先使用用户指定的分辨率）
-    if width and height:
-        img_width, img_height = width, height
-    else:
-        # 自动计算尺寸（不超过默认最大宽度800）
-        img_width = min(total_text_width + 2 * padding, 800) if not width else width
-        img_height = total_text_height + 2 * padding if not height else height
 
-    # 创建图片和绘图对象
-    img = Image.new("RGB", (img_width, img_height), bg_color)
-    draw = ImageDraw.Draw(img)
-
-    # 计算文字垂直起始位置（根据垂直对齐方式）
+def _draw_text(draw, wrapped_text, line_dimensions, font, text_color,
+               img_width, img_height, total_text_height,
+               horizontal_align, vertical_align, padding, font_size):
+    """绘制文本到图片上"""
+    # 计算垂直起始位置
     if vertical_align == "top":
         y_text = padding
     elif vertical_align == "center":
-        # 垂直居中 = (图片高度 - 总文字高度) // 2
         y_text = (img_height - total_text_height) // 2
     else:  # bottom
         y_text = img_height - padding - total_text_height
-
-    # 绘制每行文字（根据水平对齐方式调整x坐标）
+    
+    # 绘制每行文字
+    line_spacing = font_size // 4
     for i, line in enumerate(wrapped_text):
-        line_width = line_widths[i]
+        line_width = line_dimensions[i][0]
+        
         # 计算水平起始位置
         if horizontal_align == "left":
             x_text = padding
@@ -87,14 +130,9 @@ def create_text_image(
             x_text = (img_width - line_width) // 2
         else:  # right
             x_text = img_width - padding - line_width
-
-        # 绘制文字
+        
         draw.text((x_text, y_text), line, font=font, fill=text_color)
-        # 更新下一行y坐标（当前行高 + 行间距）
-        y_text += line_heights[i] + line_spacing
-
-    img.save(output_path)
-    print(f"图片已保存至: {output_path}（分辨率：{img_width}x{img_height}）")
+        y_text += line_dimensions[i][1] + line_spacing
 
 
 def main():

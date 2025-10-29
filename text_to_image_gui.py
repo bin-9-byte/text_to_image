@@ -1,9 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, colorchooser, filedialog, scrolledtext
-from PIL import Image, ImageDraw, ImageFont, ImageTk
-import textwrap
+from tkinter import messagebox
+from PIL import Image, ImageTk
 import os
 import tempfile
+# 导入重构后的模块，复用核心功能
+from text_to_image import create_text_image
 
 class TextToImageGUI:
     def __init__(self, root):
@@ -26,11 +28,14 @@ class TextToImageGUI:
             "text": ""
         }
         
-        # 创建初始页面
-        self.create_size_selection_page()
-        
         # 临时文件用于预览
         self.temp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+        
+        # 绑定窗口关闭事件，用于清理临时文件
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # 创建初始页面
+        self.create_size_selection_page()
 
     def create_size_selection_page(self):
         """创建图片大小选择页面"""
@@ -256,10 +261,10 @@ class TextToImageGUI:
         self.settings["padding"] = self.padding_var.get()
         
         # 生成预览图
-        self.create_text_image(self.temp_file)
-        
-        # 显示预览图
         try:
+            self.create_text_image(self.temp_file)
+            
+            # 显示预览图
             img = Image.open(self.temp_file)
             # 调整预览大小以适应窗口，但保持比例
             canvas_width = self.preview_canvas.winfo_width() or 600
@@ -291,94 +296,32 @@ class TextToImageGUI:
             filetypes=[("PNG图片", "*.png"), ("JPG图片", "*.jpg"), ("所有文件", "*.*")]
         )
         if output_path:
-            self.create_text_image(output_path)
-            tk.messagebox.showinfo("成功", f"图片已保存至: {output_path}")
+            try:
+                self.create_text_image(output_path)
+                messagebox.showinfo("成功", f"图片已保存至: {output_path}")
+            except Exception as e:
+                messagebox.showerror("错误", f"保存图片失败: {str(e)}")
 
     def create_text_image(self, output_path):
-        """创建文字图片（基于原函数实现）"""
-        text = self.settings["text"]
-        font_path = self.settings["font_path"]
-        font_size = self.settings["font_size"]
-        text_color = self.settings["text_color"]
-        bg_color = self.settings["bg_color"]
-        width = self.settings["width"]
-        height = self.settings["height"]
-        horizontal_align = self.settings["horizontal_align"]
-        vertical_align = self.settings["vertical_align"]
-        padding = self.settings["padding"]
-        
+        """创建文字图片（复用text_to_image模块的功能）"""
+        # 直接调用模块中的函数，消除代码重复
         try:
-            if font_path and os.path.exists(font_path):
-                font = ImageFont.truetype(font_path, font_size)
-            else:
-                font = ImageFont.load_default()
-        except IOError:
-            font = ImageFont.load_default()
-        
-        # 创建临时绘图对象计算文本尺寸
-        temp_img = Image.new("RGB", (1, 1), bg_color)
-        temp_draw = ImageDraw.Draw(temp_img)
-        
-        # 计算平均字符宽度（用于换行）
-        bbox = font.getbbox("x")
-        avg_char_width = bbox[2] - bbox[0]
-        # 最大每行字符数
-        max_line_width = width if width else 800
-        max_chars_per_line = (max_line_width - 2 * padding) // avg_char_width
-        
-        # 文本换行处理
-        wrapped_text = []
-        for paragraph in text.split("\n"):
-            wrapped = textwrap.fill(paragraph, width=max_chars_per_line)
-            wrapped_text.extend(wrapped.split("\n"))
-        
-        # 计算每行文本的宽高及总尺寸
-        line_heights = []
-        line_widths = []
-        line_spacing = font_size // 4  # 行间距
-        for line in wrapped_text:
-            bbox = temp_draw.textbbox((0, 0), line, font=font)
-            line_width = bbox[2] - bbox[0]
-            line_height = bbox[3] - bbox[1]
-            line_widths.append(line_width)
-            line_heights.append(line_height)
-        total_text_width = max(line_widths) if line_widths else 0
-        total_text_height = (
-            sum(line_heights) + (len(line_heights) - 1) * line_spacing
-        )
-        
-        # 确定图片最终尺寸
-        img_width, img_height = width, height
-        
-        # 创建图片和绘图对象
-        img = Image.new("RGB", (img_width, img_height), bg_color)
-        draw = ImageDraw.Draw(img)
-        
-        # 计算文字垂直起始位置
-        if vertical_align == "top":
-            y_text = padding
-        elif vertical_align == "center":
-            y_text = (img_height - total_text_height) // 2
-        else:  # bottom
-            y_text = img_height - padding - total_text_height
-        
-        # 绘制每行文字
-        for i, line in enumerate(wrapped_text):
-            line_width = line_widths[i]
-            # 计算水平起始位置
-            if horizontal_align == "left":
-                x_text = padding
-            elif horizontal_align == "center":
-                x_text = (img_width - line_width) // 2
-            else:  # right
-                x_text = img_width - padding - line_width
-            
-            # 绘制文字
-            draw.text((x_text, y_text), line, font=font, fill=text_color)
-            # 更新下一行y坐标
-            y_text += line_heights[i] + line_spacing
-        
-        img.save(output_path)
+            create_text_image(
+                text=self.settings["text"],
+                font_path=self.settings["font_path"],
+                output_path=output_path,
+                font_size=self.settings["font_size"],
+                text_color=self.settings["text_color"],
+                bg_color=self.settings["bg_color"],
+                width=self.settings["width"],
+                height=self.settings["height"],
+                horizontal_align=self.settings["horizontal_align"],
+                vertical_align=self.settings["vertical_align"],
+                padding=self.settings["padding"]
+            )
+        except Exception as e:
+            # 重新抛出异常，让调用者处理
+            raise Exception(f"创建图片失败: {str(e)}")
 
     def hex_to_rgb(self, hex_color):
         """将十六进制颜色转换为RGB元组"""
@@ -389,6 +332,17 @@ class TextToImageGUI:
         """清空当前窗口内容"""
         for widget in self.root.winfo_children():
             widget.destroy()
+    
+    def on_closing(self):
+        """窗口关闭时清理资源"""
+        # 尝试删除临时文件
+        try:
+            if os.path.exists(self.temp_file):
+                os.unlink(self.temp_file)
+        except:
+            pass
+        # 关闭窗口
+        self.root.destroy()
 
 if __name__ == "__main__":
     root = tk.Tk()
